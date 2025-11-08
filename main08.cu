@@ -1,0 +1,198 @@
+#include <stdio.h>
+#include <stdlib.h>
+
+#ifndef NumElem
+#define NumElem 512
+#endif
+
+
+#include <sys/times.h>
+#include <sys/resource.h>
+
+float GetTime(void)        
+{
+  struct timeval tim;
+  struct rusage ru;
+  getrusage(RUSAGE_SELF, &ru);
+  tim=ru.ru_utime;
+  return ((float)tim.tv_sec + (float)tim.tv_usec / 1000000.0)*1000.0;
+}
+
+__global__ void Kernel07(double *g_idata, double *g_odata, int N) {
+  __shared__ double sdata[NumElem];
+  unsigned int s;
+
+  // Each thread performs the partial sum of the data assigned to it
+  // and stores the result in shared memory
+  unsigned int tid = threadIdx.x;
+  unsigned int i = blockIdx.x*(blockDim.x*2) + threadIdx.x;
+  unsigned int gridSize = blockDim.x*2*gridDim.x;
+  sdata[tid] = 0;
+  while (i < N) {
+    sdata[tid] += g_idata[i] + g_idata[i+blockDim.x];
+    i += gridSize;
+  }
+  __syncthreads();
+
+  // Perform the reduction in shared memory
+  for (s=blockDim.x/2; s>32; s>>=1) {
+    if (tid < s)
+      sdata[tid] += sdata[tid + s];
+    __syncthreads();
+  }
+  // Unroll the last active warp
+  if (tid < 32) {
+    volatile double *smem = sdata;
+
+    smem[tid] += smem[tid + 32];
+    smem[tid] += smem[tid + 16];
+    smem[tid] += smem[tid + 8];
+    smem[tid] += smem[tid + 4];
+    smem[tid] += smem[tid + 2];
+    smem[tid] += smem[tid + 1];
+  }
+
+
+  // Thread 0 writes this block's result to global memory
+  if (tid == 0) g_odata[blockIdx.x] = sdata[0];
+
+}
+
+__global__ void Kernel06(double *g_idata, double *g_odata) {
+  __shared__ double sdata[NumElem];
+  unsigned int s;
+
+  // Each thread loads 2 elements from global memory,
+  // sums them and stores the result in shared memory
+  unsigned int tid = threadIdx.x;
+  unsigned int i = blockIdx.x*(blockDim.x*2) + threadIdx.x;
+  sdata[tid] = g_idata[i] + g_idata[i+blockDim.x];
+  __syncthreads();
+
+  // Perform the reduction in shared memory
+  for (s=blockDim.x/2; s>32; s>>=1) {
+    if (tid < s)
+      sdata[tid] += sdata[tid + s];
+    __syncthreads();
+  } 
+
+ // Unroll the last active warp
+ if (tid < 32) {
+   volatile double *smem = sdata;
+
+   smem[tid] += smem[tid + 32];
+   smem[tid] += smem[tid + 16];
+   smem[tid] += smem[tid + 8];
+   smem[tid] += smem[tid + 4];
+   smem[tid] += smem[tid + 2];
+   smem[tid] += smem[tid + 1];
+ }
+
+ // Thread 0 writes this block's result to global memory
+ if (tid == 0) g_odata[blockIdx.x] = sdata[0];
+
+}
+
+
+void InitV(int N, double *v);
+int Test(int N, double *v, double sum, double *res);
+
+int main(int argc, char** argv) {
+  unsigned int N;
+  unsigned int numBytesV, numBytesW;
+  unsigned int nBlocks, nThreads;
+  int test;
+  float SeqTime, elapsedTime;
+  float t1,t2; 
+
+  cudaEvent_t start, stop;
+
+  double *h_v;
+  double *d_v, *d_w;
+
+  double SUM, SumSeq, *RES;
+  int count, gpu, tmp;
+
+  N = 1024 * 1024 * 16;
+  nThreads = NumElem;  // This value must match the number of elements handled by the kernel
+
+  // Maximum number of block threads = 65535
+  nBlocks = NumElem * 2;
+  
+  numBytesV = N * sizeof(double);
+  numBytesW = nBlocks * sizeof(double);
+
+  // Select GPU randomly
+  cudaGetDeviceCount(&count);
+  srand(time(NULL));
+  tmp = rand();
+  gpu = (tmp>>3) % count;
+  cudaSetDevice(gpu);
+
+
+  cudaEventCreate(&start);
+  cudaEventCreate(&stop);
+
+  // Allocate memory on the host
+  h_v = (double*) malloc(numBytesV);
+
+  // Obtain [pinned] memory on the host
+  //cudaMallocHost((double**)&h_v, numBytesV);
+  //cudaMallocHost((double**)&h_w, numBytesW);
+
+  // Initialize the vectors
+  InitV(N, h_v);
+
+
+  // Allocate memory on the device
+  cudaMalloc((double**)&d_v, numBytesV);
+  cudaMalloc((double**)&d_w, numBytesW);
+  cudaMalloc((double**)&RES, sizeof(double));
+
+  // Copy data from host to device
+  cudaMemcpy(d_v, h_v, numBytesV, cudaMemcpyHostToDevice);
+
+  cudaEventRecord(start, 0);
+
+  // Run the kernel
+  Kernel07<<<nBlocks, nThreads>>>(d_v, d_w, N);
+  Kernel06<<<1, nThreads>>>(d_w, RES);
+
+  // Copy the partial result back to the host
+  cudaMemcpy(&SUM, RES, sizeof(double), cudaMemcpyDeviceToHost);
+
+
+  cudaEventRecord(stop, 0);
+  cudaEventSynchronize(stop);
+
+  // Free device memory
+  cudaFree(d_v);
+  cudaFree(d_w);
+ 
+  cudaEventElapsedTime(&elapsedTime, start, stop);
+  printf("\nKERNEL 08\n");
+  printf("GPU used: %d\n", gpu);
+  printf("Vector Size: %d\n", N);
+  printf("nThreads: %d\n", nThreads);
+  printf("nBlocks: %d\n", nBlocks);
+  printf("Total Time %4.6f ms\n", elapsedTime);
+  printf("Bandwidth %4.3f GB/s\n", (N * sizeof(double)) / (1000000 * elapsedTime));
+
+  cudaEventDestroy(start);
+  cudaEventDestroy(stop);
+
+  t1=GetTime();
+  test = Test(N, h_v, SUM, &SumSeq);
+  t2=GetTime();
+  SeqTime = t2 - t1;
+  printf("Speedup: x%2.3f \n", SeqTime/elapsedTime);
+
+  if (test)
+    printf ("TEST PASS, Time seq: %f ms\n", SeqTime);
+  else {
+    printf ("ERROR: %f(GPU) : %f(CPU) : %f(diff) : %f(error) \n", SumSeq, SUM, abs(SumSeq-SUM), abs(SumSeq - SUM)/SumSeq);
+    printf ("TEST FAIL\n");
+  }
+}
+
+

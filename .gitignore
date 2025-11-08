@@ -1,0 +1,12 @@
+# Build directory
+/build
+
+# Temporary files
+*.o
+*.obj
+*.exe
+*.log
+
+# Editor files
+.vscode/
+.idea/
