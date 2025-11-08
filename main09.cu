@@ -82,29 +82,25 @@ int main() {
   size_t temp_storage_bytes = 0;
 
   CUDA_CHECK(cudaMalloc(&d_result, sizeof(double)));
-
   // Query temporary storage size
   cub::DeviceReduce::Sum(d_temp_storage, temp_storage_bytes, d_v, d_result, N);
   CUDA_CHECK(cudaMalloc(&d_temp_storage, temp_storage_bytes));
 
+  // Run sum-reduction
   CUDA_CHECK(cudaEventRecord(start, 0));
   cub::DeviceReduce::Sum(d_temp_storage, temp_storage_bytes, d_v, d_result, N);
-  CUDA_CHECK(cudaEventRecord(stop, 0));
-  CUDA_CHECK(cudaEventSynchronize(stop));
 
   // copy final result back to host
   CUDA_CHECK(
       cudaMemcpy(&SUM, d_result, sizeof(double), cudaMemcpyDeviceToHost));
-
+  CUDA_CHECK(cudaEventRecord(stop, 0));
+  CUDA_CHECK(cudaEventSynchronize(stop));
+  
   // free temporary device storage
   CUDA_CHECK(cudaFree(d_temp_storage));
   CUDA_CHECK(cudaFree(d_result));
-
-  cudaEventRecord(stop, 0);
-  cudaEventSynchronize(stop);
-
   // Free device memory
-  cudaFree(d_v);
+  CUDA_CHECK(cudaFree(d_v));
 
   cudaEventElapsedTime(&elapsedTime, start, stop);
   printf("\nKERNEL 09\n");
@@ -121,6 +117,8 @@ int main() {
   test = Test(N, h_v, SUM, &SumSeq);
   t2 = GetTime();
   SeqTime = t2 - t1;
+  printf("CPU Time seq: %f ms\n", SeqTime);
+  printf("GPU Time: %f ms\n", elapsedTime);
   printf("Speedup: x%2.3f \n", SeqTime / elapsedTime);
 
   if (test)
