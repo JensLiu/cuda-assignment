@@ -28,6 +28,7 @@ EXE07	        = kernel07.exe
 EXE08	        = kernel08.exe
 EXE09	        = kernel09.exe
 EXE10	        = kernel10.exe
+EXE11			= kernel11.exe
 OBJ01	        = main01.o
 OBJ02	        = main02.o
 OBJ03	        = main03.o
@@ -38,11 +39,12 @@ OBJ07	        = main07.o
 OBJ08	        = main08.o
 OBJ09	        = main09.o
 OBJ10	        = main10.o
+OBJ11			= main11.o
 
 TST             = test.exe
 TSTO            = test.o
 
-EXE = $(EXE01) $(EXE02) $(EXE03) $(EXE04) $(EXE05) $(EXE06) $(EXE07) $(EXE08) $(EXE09) $(EXE10)
+EXE = $(EXE01) $(EXE02) $(EXE03) $(EXE04) $(EXE05) $(EXE06) $(EXE07) $(EXE08) $(EXE09) $(EXE10) $(EXE11)
 
 default: $(EXE)
 
@@ -80,6 +82,9 @@ main09.o: main09.cu
 main10.o: main10.cu
 	$(NVCC) -c -o $@ main10.cu $(NVCC_FLAGS) $(PROG_FLAGS)
 
+main11.o: main11.cu
+	$(NVCC) -c -o $@ main11.cu $(NVCC_FLAGS) $(PROG_FLAGS)
+
 $(TST): $(TSTO)
 	$(NVCC) $(TSTO) -o $(TST) $(LD_FLAGS)
 
@@ -113,7 +118,10 @@ $(EXE09): $(OBJ09)
 $(EXE10): $(OBJ10)
 	$(NVCC) $(OBJ10) vector.cu -o $(EXE10) $(NVCC_FLAGS) $(PROG_FLAGS) $(LD_FLAGS)
 
-all:	$(EXE01) $(EXE02) $(EXE03) $(EXE04) $(EXE05) $(EXE06) $(EXE07) $(EXE08) $(EXE09) $(EXE10)
+$(EXE11): $(OBJ11)
+	$(NVCC) $(OBJ11) vector.cu -o $(EXE11) $(NVCC_FLAGS) $(PROG_FLAGS) $(LD_FLAGS)
+
+all:	$(EXE01) $(EXE02) $(EXE03) $(EXE04) $(EXE05) $(EXE06) $(EXE07) $(EXE08) $(EXE09) $(EXE10) $(EXE11)
 
 # Generic rule: link a single object into an executable using nvcc.
 # This prevents make from falling back to the default `cc` linker when
